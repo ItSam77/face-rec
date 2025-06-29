@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition App</title>
+</head>
+<body>
+    <h1>Face Recognition App</h1>
+    <p>Take a photo to identify the person (Adams, Jeremy, or Samuel)</p>
+    
+    <video id="video" width="400" height="300" autoplay></video>
+    <canvas id="canvas"></canvas>
+    
+    <br>
+    
+    <button id="takePhoto" onclick="startCamera()">Take Photo</button>
+    <button id="capturePhoto" onclick="capturePhoto()">Capture</button>
+    <button id="predict" onclick="predictImage()">Predict</button>
+    
+    <br>
+    
+    <div id="loading">Processing image...</div>
+    <div id="result"></div>
+
+    <script>
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let capturedImage = null;
+        let currentStep = 1; // 1=take photo, 2=capture, 3=predict
+        
+        // Initially hide elements
+        document.getElementById('capturePhoto').style.display = 'none';
+        document.getElementById('predict').style.display = 'none';
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('canvas').style.display = 'none';
+        
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                
+                document.getElementById('takePhoto').style.display = 'none';
+                document.getElementById('capturePhoto').style.display = 'inline';
+                document.getElementById('result').innerHTML = '';
+                currentStep = 2;
+            } catch (err) {
+                alert('Error accessing camera: ' + err.message);
+            }
+        }
+        
+        function capturePhoto() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            capturedImage = canvas.toDataURL('image/jpeg', 0.8);
+            
+            video.srcObject.getTracks().forEach(track => track.stop());
+            video.src = capturedImage;
+            
+            document.getElementById('capturePhoto').style.display = 'none';
+            document.getElementById('predict').style.display = 'inline';
+            currentStep = 3;
+        }
+        
+        async function predictImage() {
+            if (!capturedImage) {
+                alert('Please capture a photo first!');
+                return;
+            }
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('predict').disabled = true;
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image: capturedImage })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayResult(result);
+                } else {
+                    displayError(result.error);
+                }
+            } catch (error) {
+                displayError('Network error: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('predict').disabled = false;
+                
+                document.getElementById('predict').style.display = 'none';
+                document.getElementById('takePhoto').style.display = 'inline';
+                currentStep = 1;
+            }
+        }
+        
+        function displayResult(result) {
+            let html = `
+                <h3>Prediction Result:</h3>
+                <p>Predicted: ${result.predicted_class}</p>
+                <p>Confidence: ${(result.confidence * 100).toFixed(1)}%</p>
+                <p>All Predictions:</p>
+                <ul>
+            `;
+            
+            for (const [className, confidence] of Object.entries(result.all_predictions)) {
+                const percentage = (confidence * 100).toFixed(1);
+                html += `<li>${className}: ${percentage}%</li>`;
+            }
+            
+            html += '</ul>';
+            document.getElementById('result').innerHTML = html;
+        }
+        
+        function displayError(error) {
+            document.getElementById('result').innerHTML = `<p>Error: ${error}</p>`;
+        }
+    </script>
+</body>
+</html> 
