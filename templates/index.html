@@ -4,123 +4,193 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Face Recognition App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>Face Recognition App</h1>
-    <p>Take a photo to identify the person (Adams, Jeremy, or Samuel)</p>
-    
-    <video id="video" width="400" height="300" autoplay></video>
-    <canvas id="canvas"></canvas>
-    
-    <br>
-    
-    <button id="takePhoto" onclick="startCamera()">Take Photo</button>
-    <button id="capturePhoto" onclick="capturePhoto()">Capture</button>
-    <button id="predict" onclick="predictImage()">Predict</button>
-    
-    <br>
-    
-    <div id="loading">Processing image...</div>
-    <div id="result"></div>
+    <div class="container">
+        <h1>🧠 Face Recognition</h1>
+        <p>Upload multiple JPG files to identify Adams, Jeremy, or Samuel</p>
+        
+        <div class="upload-area">
+            <input type="file" id="fileInput" accept=".jpg,.jpeg" multiple>
+            <label for="fileInput" class="upload-btn">
+                📁 Choose JPG Files
+            </label>
+            <p class="help-text">Select multiple files at once</p>
+        </div>
+        
+        <div id="filePreview" class="file-preview"></div>
+        
+        <div class="actions">
+            <button id="clearFiles" onclick="clearFiles()" class="clear-btn" style="display: none;">
+                🗑️ Clear All
+            </button>
+            <button id="analyzeBtn" onclick="analyzeFiles()" class="analyze-btn" style="display: none;">
+                🔍 Analyze Images (<span id="fileCount">0</span>)
+            </button>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>Processing <span id="progress">1 of 1</span> images...</p>
+        </div>
+        
+        <div id="results" class="results"></div>
+    </div>
 
     <script>
-        let video = document.getElementById('video');
-        let canvas = document.getElementById('canvas');
-        let ctx = canvas.getContext('2d');
-        let capturedImage = null;
-        let currentStep = 1; // 1=take photo, 2=capture, 3=predict
+        let selectedFiles = [];
         
-        // Initially hide elements
-        document.getElementById('capturePhoto').style.display = 'none';
-        document.getElementById('predict').style.display = 'none';
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('canvas').style.display = 'none';
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
         
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
+        function handleFileSelect(event) {
+            selectedFiles = [];
+            const files = Array.from(event.target.files);
+            
+            files.forEach(file => {
+                if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+                    selectedFiles.push(file);
+                } else {
+                    alert(`"${file.name}" bukan file JPG`);
+                }
+            });
+            
+            if (selectedFiles.length > 0) {
+                showFilePreview();
+                document.getElementById('clearFiles').style.display = 'inline-block';
+                document.getElementById('analyzeBtn').style.display = 'inline-block';
+                document.getElementById('fileCount').textContent = selectedFiles.length;
+            } else {
+                hideControls();
+            }
+        }
+        
+        function showFilePreview() {
+            const preview = document.getElementById('filePreview');
+            preview.innerHTML = `<h3>Selected Files (${selectedFiles.length})</h3>`;
+            
+            const grid = document.createElement('div');
+            grid.className = 'files-grid';
+            
+            selectedFiles.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
                 
-                document.getElementById('takePhoto').style.display = 'none';
-                document.getElementById('capturePhoto').style.display = 'inline';
-                document.getElementById('result').innerHTML = '';
-                currentStep = 2;
-            } catch (err) {
-                alert('Error accessing camera: ' + err.message);
-            }
+                const img = document.createElement('img');
+                img.className = 'thumbnail';
+                
+                const reader = new FileReader();
+                reader.onload = e => img.src = e.target.result;
+                reader.readAsDataURL(file);
+                
+                const name = document.createElement('div');
+                name.className = 'file-name';
+                name.textContent = file.name.length > 20 ? file.name.substring(0, 20) + '...' : file.name;
+                
+                item.appendChild(img);
+                item.appendChild(name);
+                grid.appendChild(item);
+            });
+            
+            preview.appendChild(grid);
         }
         
-        function capturePhoto() {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0);
-            capturedImage = canvas.toDataURL('image/jpeg', 0.8);
-            
-            video.srcObject.getTracks().forEach(track => track.stop());
-            video.src = capturedImage;
-            
-            document.getElementById('capturePhoto').style.display = 'none';
-            document.getElementById('predict').style.display = 'inline';
-            currentStep = 3;
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('fileInput').value = '';
+            document.getElementById('filePreview').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            hideControls();
         }
         
-        async function predictImage() {
-            if (!capturedImage) {
-                alert('Please capture a photo first!');
-                return;
-            }
+        function hideControls() {
+            document.getElementById('clearFiles').style.display = 'none';
+            document.getElementById('analyzeBtn').style.display = 'none';
+        }
+        
+        async function analyzeFiles() {
+            if (selectedFiles.length === 0) return;
             
             document.getElementById('loading').style.display = 'block';
-            document.getElementById('predict').disabled = true;
+            document.getElementById('analyzeBtn').disabled = true;
+            document.getElementById('results').innerHTML = '';
+            
+            const results = [];
             
             try {
-                const response = await fetch('/predict', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ image: capturedImage })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    displayResult(result);
-                } else {
-                    displayError(result.error);
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    document.getElementById('progress').textContent = `${i + 1} of ${selectedFiles.length}`;
+                    
+                    const base64 = await fileToBase64(selectedFiles[i]);
+                    const response = await fetch('/predict', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: base64 })
+                    });
+                    
+                    const result = await response.json();
+                    results.push({ file: selectedFiles[i].name, result });
                 }
+                
+                showResults(results);
             } catch (error) {
-                displayError('Network error: ' + error.message);
+                document.getElementById('results').innerHTML = `<div class="error">Error: ${error.message}</div>`;
             } finally {
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('predict').disabled = false;
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+        
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        function showResults(results) {
+            const container = document.getElementById('results');
+            container.innerHTML = '<h3>📊 Results</h3>';
+            
+            results.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'result-card';
                 
-                document.getElementById('predict').style.display = 'none';
-                document.getElementById('takePhoto').style.display = 'inline';
-                currentStep = 1;
-            }
-        }
-        
-        function displayResult(result) {
-            let html = `
-                <h3>Prediction Result:</h3>
-                <p>Predicted: ${result.predicted_class}</p>
-                <p>Confidence: ${(result.confidence * 100).toFixed(1)}%</p>
-                <p>All Predictions:</p>
-                <ul>
-            `;
-            
-            for (const [className, confidence] of Object.entries(result.all_predictions)) {
-                const percentage = (confidence * 100).toFixed(1);
-                html += `<li>${className}: ${percentage}%</li>`;
-            }
-            
-            html += '</ul>';
-            document.getElementById('result').innerHTML = html;
-        }
-        
-        function displayError(error) {
-            document.getElementById('result').innerHTML = `<p>Error: ${error}</p>`;
+                if (item.result.success) {
+                    const confidence = (item.result.confidence * 100).toFixed(1);
+                    card.innerHTML = `
+                        <div class="result-header">
+                            <span class="filename">📷 ${item.file}</span>
+                            <span class="prediction">${item.result.predicted_class}</span>
+                        </div>
+                        <div class="confidence">
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" style="width: ${confidence}%"></div>
+                            </div>
+                            <span class="confidence-text">${confidence}% yakin</span>
+                        </div>
+                        <div class="all-predictions">
+                            ${Object.entries(item.result.all_predictions).map(([name, conf]) => 
+                                `<div class="pred-item">
+                                    <span>${name}</span>
+                                    <span>${(conf * 100).toFixed(1)}%</span>
+                                </div>`
+                            ).join('')}
+                        </div>
+                    `;
+                } else {
+                    card.innerHTML = `
+                        <div class="result-header error">
+                            <span class="filename">❌ ${item.file}</span>
+                        </div>
+                        <div class="error-msg">Error: ${item.result.error}</div>
+                    `;
+                }
+                
+                container.appendChild(card);
+            });
         }
     </script>
 </body>
